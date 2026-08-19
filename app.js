@@ -37,6 +37,8 @@ const DEFAULTS = {
   streaming: true,
   useProxy: true,
   autoTitle: true,         // let the model name each chat
+  rememberKey: true,       // false → key kept in memory for this tab only
+
 
   client: 'claude-code',   // identity sent upstream (see CLIENTS below)
   theme: 'dark',
@@ -170,8 +172,39 @@ let controller = null;      // AbortController for the in-flight request
 let sessionTokens = 0;
 
 function load(k, fb) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? structuredClone(fb) : v; } catch { return structuredClone(fb); } }
-const saveCfg = () => localStorage.setItem(LS_CFG, JSON.stringify(cfg));
-const saveChats = () => localStorage.setItem(LS_CHATS, JSON.stringify(chats));
+
+/* Saving settings.
+   `cfg` in memory always holds the real key so the current tab can make
+   requests. What reaches disk depends on "Remember my API key":
+     • on  → key is written to localStorage, so it survives a reload
+     • off → key is blanked on disk; it lives only in this tab's memory and
+             disappears the moment the tab is closed
+   Nothing is ever sent anywhere except the relay you configured. */
+function saveCfg() {
+  try {
+    if (cfg.rememberKey === false) {
+      const copy = Object.assign({}, cfg, { keys: { anthropic: '', openai: '' } });
+      localStorage.setItem(LS_CFG, JSON.stringify(copy));
+    } else {
+      localStorage.setItem(LS_CFG, JSON.stringify(cfg));
+    }
+  } catch { /* storage full or private mode — keep working in memory */ }
+}
+const saveChats = () => { try { localStorage.setItem(LS_CHATS, JSON.stringify(chats)); } catch {} };
+
+/* Remove every trace this site keeps in the browser. */
+function eraseLocalData({ keepChats = false } = {}) {
+  try {
+    localStorage.removeItem(LS_CFG);
+    if (!keepChats) localStorage.removeItem(LS_CHATS);
+  } catch { /* ignore */ }
+  if (!keepChats) { chats = []; currentId = null; }
+  cfg = structuredClone(DEFAULTS);
+  cfg.useProxy = isLocal();
+  if (!isLocal()) cfg.client = 'codex';
+  cfg.routingFixed = true;
+}
+
 
 const chat = () => chats.find((c) => c.id === currentId);
 function ensureChat() {
@@ -871,6 +904,8 @@ function fillSettings() {
   $('autoTitle').checked = !!cfg.autoTitle;
   $('streaming').checked = !!cfg.streaming;
   $('useProxy').checked = !!cfg.useProxy;
+  $('rememberKey').checked = cfg.rememberKey !== false;
+
 
   const cs = $('client');
   if (!cs.options.length) {
@@ -1054,6 +1089,26 @@ function bind() {
   $('showKey').onclick = () => {
     const i = $('apiKey'); i.type = i.type === 'password' ? 'text' : 'password';
   };
+  $('clearKey').onclick = () => {
+    cfg.keys[cfg.provider] = '';
+    saveCfg(); $('apiKey').value = '';
+    toast('Key removed from this browser', 'ok');
+  };
+  $('rememberKey').onchange = (e) => {
+    cfg.rememberKey = e.target.checked;
+    saveCfg();   // when switched off this rewrites the stored copy without the key
+    toast(cfg.rememberKey
+      ? 'Key will be remembered on this device'
+      : 'Key kept for this tab only — it will be forgotten when you close it', 'ok');
+  };
+  $('eraseBtn').onclick = () => {
+    if (!confirm('Delete your API key, all chats and all settings from this browser?\n\nThis cannot be undone.')) return;
+    eraseLocalData();
+    document.documentElement.dataset.theme = cfg.theme;
+    fillSettings(); renderChatList(); renderMessages();
+    toast('Everything erased from this browser', 'ok');
+  };
+
   $('useCustomBase').onchange = (e) => { cfg.useCustomBase = e.target.checked; saveCfg(); fillSettings(); };
   $('baseUrl').oninput = (e) => { cfg.baseUrl = e.target.value.trim(); saveCfg(); updateMeta(); };
   $('modelSelect').onchange = (e) => setModel(e.target.value);

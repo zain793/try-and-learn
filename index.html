@@ -97,8 +97,14 @@
       <div class="row">
         <input id="apiKey" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false">
         <button class="btn" id="showKey" title="Show / hide">👁</button>
+        <button class="btn" id="clearKey" title="Remove the key from this browser">🗑</button>
       </div>
-      <p class="hint">This key is stored locally (in your browser only) and is used solely to make API requests from this page.</p>
+      <label class="chk"><input type="checkbox" id="rememberKey"> Remember my API key on this device</label>
+      <p class="hint">Your key stays in <b>your own browser</b> (localStorage) and is sent only to the relay you
+      configured above — never to this website's server, and never to anyone else.<br>
+      <b>Unticked:</b> the key is kept in memory for this tab only and disappears when you close it.<br>
+      Press <b>🗑</b> to delete it immediately.</p>
+
     </section>
 
     <section class="grp">
@@ -176,7 +182,14 @@
       <button class="btn ghost" id="resetBtn">Reset settings</button>
     </section>
 
-    <p class="hint tiny">Data lives in this browser's localStorage: keys, chats and preferences. Clearing site data removes everything.</p>
+    <section class="grp">
+      <button class="btn danger block" id="eraseBtn">🗑 Erase everything from this browser</button>
+      <p class="hint tiny">Nothing about you is stored on a server — this app has no accounts and no database.
+      Your key, chats and preferences live only in this browser's localStorage, so they're visible only on this
+      device (and to anyone who can use it). The button above deletes all of it instantly; clearing site data
+      in your browser does the same.</p>
+    </section>
+
   </div>
 </aside>
 

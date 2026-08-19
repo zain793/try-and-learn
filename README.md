@@ -182,7 +182,30 @@ server.py     static server + streaming CORS proxy (stdlib only)
 start.bat     double-click launcher (Windows)
 ```
 
+## Where your data lives
+
+There is **no server-side storage** — no accounts, no database, no logging. Everything a
+visitor types stays in their own browser's `localStorage`, under two keys
+(`ar.cfg.v1` for settings, `ar.chats.v1` for chats).
+
+| | Stored where | Removed when |
+|---|---|---|
+| API key | your browser only | you press 🗑 next to the key, use **Erase everything**, clear site data, or untick *Remember my API key* (then it's forgotten when the tab closes) |
+| Chats | your browser only | delete a chat, press **Erase everything**, or clear site data |
+| Settings | your browser only | **Reset settings**, **Erase everything**, or clear site data |
+
+Because storage is per-browser and per-device, each visitor only ever sees their own key
+and their own chats — one person's data can never appear for someone else. In direct mode
+(the default on hosted sites) the key is sent **only** to the relay you configured; it
+never passes through the site's own server.
+
+Two things worth knowing: `localStorage` is **not encrypted**, so anyone with access to
+your device or your browser's devtools can read a remembered key — untick *Remember my
+API key* on shared computers. And a key stays valid until you revoke it in AgentRouter,
+so if you suspect it leaked, rotate it there.
+
 ## Notes
+
 
 - Credits are consumed on your AgentRouter account; the footer of each reply shows
   input/output tokens, elapsed time and tok/s.
