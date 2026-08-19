@@ -1,0 +1,11 @@
+[build]
+  publish = "."
+
+# Same streaming proxy as the local server, so /proxy and /health work in production.
+[[edge_functions]]
+  path = "/proxy"
+  function = "proxy"
+
+[[edge_functions]]
+  path = "/health"
+  function = "proxy"

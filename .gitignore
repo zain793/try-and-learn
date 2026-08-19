@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node / tooling
+node_modules/
+.vercel/
+.netlify/
+.wrangler/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Local scratch files — never commit anything that could hold a key
+*.local
+*.log
+.env
+.env.*
+_*.py
+_*.js
