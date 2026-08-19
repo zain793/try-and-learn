@@ -145,14 +145,23 @@ cfg.favorites = Array.isArray(cfg.favorites) ? cfg.favorites : [];
    IP is not blocked, and the relay sends `Access-Control-Allow-Origin: *`,
    so calling it straight from the page is both allowed and more reliable.
    Locally, server.py is still the best path (it can spoof User-Agent). */
-if (!localStorage.getItem(LS_CFG)) {
+{
   const local = location.protocol === 'file:'
     || /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)$/.test(location.hostname);
-  cfg.useProxy = local;
-  if (!local) cfg.client = 'codex';   // the identity this relay accepts
-  saveCfgEarly();
+  const firstRun = !localStorage.getItem(LS_CFG);
+
+  /* One-time migration: anyone who already loaded the hosted page has
+     `useProxy: true` saved, which is exactly the path the relay's firewall
+     blocks. Flip those visitors over once (never touching local setups, and
+     never overriding a choice they make later). */
+  if (firstRun || (!local && !cfg.routingFixed)) {
+    cfg.useProxy = local;
+    if (!local) cfg.client = 'codex';   // the identity this relay accepts
+    cfg.routingFixed = true;
+    try { localStorage.setItem(LS_CFG, JSON.stringify(cfg)); } catch { /* private mode */ }
+  }
 }
-function saveCfgEarly() { try { localStorage.setItem(LS_CFG, JSON.stringify(cfg)); } catch {} }
+
 
 let chats = load(LS_CHATS, []);
 
@@ -1083,9 +1092,15 @@ function bind() {
   $('testBtn').onclick = testConnection;
   $('resetBtn').onclick = () => {
     if (!confirm('Reset all settings (keys included)? Chats are kept.')) return;
-    cfg = structuredClone(DEFAULTS); saveCfg(); document.documentElement.dataset.theme = cfg.theme; fillSettings();
+    cfg = structuredClone(DEFAULTS);
+    // keep the routing that actually works for wherever this page is served from
+    cfg.useProxy = isLocal();
+    if (!isLocal()) cfg.client = 'codex';
+    cfg.routingFixed = true;
+    saveCfg(); document.documentElement.dataset.theme = cfg.theme; fillSettings();
     toast('Settings reset', 'ok');
   };
+
 }
 
 /* ---------------- boot ---------------- */
