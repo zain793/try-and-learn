@@ -28,33 +28,46 @@ Open <http://127.0.0.1:8000> → click **⚙ Settings** (bottom-left of the side
 
 
 > You can also just double-click `index.html`, but then you must untick
-> **“Route through local proxy”** and your relay must allow browser (CORS) calls.
-> Running `server.py` is the reliable path.
+> **“Route through proxy”** in Settings. That works with AgentRouter (it sends CORS
+> headers), though running `server.py` is the smoother path locally.
+
 
 ## Deploy it publicly (free)
 
 Visitors bring their **own** API key — nothing is stored on the server, so hosting
 costs you nothing and there is no shared key to leak.
 
-The site needs one tiny serverless function for `/proxy` (browsers can't call the
-relay directly: CORS blocks it, and the relay rejects browser `User-Agent`s with
-*“unauthorized client detected”*). It's already written for both hosts:
+Deployed pages run in **direct mode**: the browser talks to AgentRouter itself. That is
+set automatically on the first visit, and it's the mode that actually works — see below.
 
-### Vercel (recommended)
+### Vercel / Netlify / GitHub Pages
 
-1. Push this repo to GitHub (see below).
-2. <https://vercel.com/new> → **Import** the repo → **Deploy**. No build step, no env vars.
-3. Done — `vercel.json` maps `/proxy` and `/health` to `api/proxy.js` / `api/health.js`.
+Any static host works.
 
-### Netlify
+- **Vercel** — <https://vercel.com/new> → import the repo → **Deploy**. No build step, no env vars.
+- **Netlify** — <https://app.netlify.com/start> → pick the repo → **Deploy**.
+- **GitHub Pages** — Settings → Pages → deploy from `main`.
 
-<https://app.netlify.com/start> → pick the repo → **Deploy**.
-`netlify.toml` wires both paths to `netlify/edge-functions/proxy.js`.
+`api/proxy.js` (Vercel) and `netlify/edge-functions/proxy.js` (Netlify) are included as an
+optional fallback, but they are **not** the default in production, for the reason below.
 
-> ### ⚠ GitHub Pages won't fully work
-> Pages serves static files only — there is no `/proxy`, so requests fail with CORS or
-> a 401. Visitors would have to untick *“Route through local proxy”* **and** use a relay
-> that allows browser calls. Use Vercel or Netlify instead.
+### ⚠ Why hosted builds use direct mode
+
+AgentRouter sits behind Aliyun's WAF. Measured behaviour:
+
+| Caller | Result |
+|---|---|
+| Your own machine / a visitor's browser | ✅ normal JSON |
+| A serverless proxy (Vercel/Netlify datacenter IP) | ❌ HTML anti-bot page → *“Unexpected token `<`”* |
+
+So a server-side proxy is the one thing that *cannot* reach it from the cloud. Luckily the
+relay sends `Access-Control-Allow-Origin: *`, so the browser may call it directly, and the
+client check is satisfied by the `originator` header (which browsers *are* allowed to set).
+Direct mode also means your visitors' keys never touch any server.
+
+If a hosted page ever shows a firewall/HTML error, open **Settings** and confirm
+*“Route through proxy”* is **unticked**.
+
 
 ### Push to GitHub
 
@@ -104,10 +117,14 @@ Fix: **Settings → Client identity**
 | `gpt-*`, `o*` | **Codex / OpenAI CLI** |
 | still refused | try **OpenAI Node SDK** / **OpenAI Python SDK** |
 
-Requirements: **Route through local proxy** must stay ON. Browsers forbid JavaScript
-from setting `User-Agent`, so the page sends the desired identity to `server.py`
-(`x-ar-ua` / `x-ar-extra`) and the proxy applies it to the real upstream request —
-those helper headers are consumed by the proxy and never forwarded.
+**With the proxy ON** (local): browsers forbid JavaScript from setting `User-Agent`, so the
+page sends the desired identity to `server.py` (`x-ar-ua` / `x-ar-extra`) and the proxy
+applies it to the real upstream request — those helper headers are never forwarded.
+
+**In direct mode** (hosted): pick **Codex / OpenAI CLI**. `User-Agent` can't be set, but
+AgentRouter's check is satisfied by the `originator` header, which browsers *may* send —
+verified working for both `claude-*` and `gpt-*` models.
+
 
 
 ## Choosing models

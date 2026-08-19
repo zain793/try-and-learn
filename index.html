@@ -125,7 +125,10 @@
     <section class="grp">
       <label class="lbl" for="client">Client identity</label>
       <select id="client"></select>
-      <p class="hint">AgentRouter rejects unknown clients with <b>“unauthorized client detected”</b>. This makes requests look like the official CLI. Use <b>Claude Code CLI</b> for <code>claude-*</code> and <b>Codex CLI</b> for <code>gpt-*</code>. Requires the local proxy.</p>
+      <p class="hint">AgentRouter rejects unknown clients with <b>“unauthorized client detected”</b>. This makes requests look like an official CLI.<br>
+      <b>With the proxy:</b> use <b>Claude Code CLI</b> for <code>claude-*</code>, <b>Codex CLI</b> for <code>gpt-*</code>.<br>
+      <b>Direct mode:</b> pick <b>Codex / OpenAI CLI</b> — browsers can't set <code>User-Agent</code>, so the accepted <code>originator</code> header is sent instead (works for Claude models too).</p>
+
     </section>
 
     <section class="grp">
@@ -161,8 +164,11 @@
       <p class="hint">After the first reply, the model writes a short 3–6 word caption for the chat so old conversations are easy to find. Rename any chat with <b>✎</b>, or regenerate its caption with <b>↻</b>.</p>
       <label class="chk"><input type="checkbox" id="streaming"> Stream responses (token by token)</label>
 
-      <label class="chk"><input type="checkbox" id="useProxy"> Route through local proxy (fixes CORS)</label>
-      <p class="hint">Recommended when you start the page with <code>python server.py</code>. Turn it off if you host the files elsewhere and your relay allows browser calls.</p>
+      <label class="chk"><input type="checkbox" id="useProxy"> Route through proxy</label>
+      <p class="hint"><b>On</b> — needed when you run this locally with <code>python server.py</code>.<br>
+      <b>Off (direct)</b> — the browser calls the relay itself. Use this on a hosted site: AgentRouter's
+      firewall blocks datacenter IPs, so a server-side proxy gets an HTML challenge page instead of a reply.</p>
+
     </section>
 
     <section class="grp two">

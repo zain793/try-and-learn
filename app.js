@@ -139,7 +139,23 @@ cfg.models = (cfg.models && cfg.models.length) ? cfg.models : DEFAULT_MODELS.sli
 cfg.favorites = Array.isArray(cfg.favorites) ? cfg.favorites : [];
 
 
+/* First visit on a deployed site → default to DIRECT browser calls.
+   A server-side proxy runs on datacenter IPs, and AgentRouter's firewall
+   answers those with an HTML challenge instead of JSON. The visitor's own
+   IP is not blocked, and the relay sends `Access-Control-Allow-Origin: *`,
+   so calling it straight from the page is both allowed and more reliable.
+   Locally, server.py is still the best path (it can spoof User-Agent). */
+if (!localStorage.getItem(LS_CFG)) {
+  const local = location.protocol === 'file:'
+    || /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)$/.test(location.hostname);
+  cfg.useProxy = local;
+  if (!local) cfg.client = 'codex';   // the identity this relay accepts
+  saveCfgEarly();
+}
+function saveCfgEarly() { try { localStorage.setItem(LS_CFG, JSON.stringify(cfg)); } catch {} }
+
 let chats = load(LS_CHATS, []);
+
 let currentId = chats[0]?.id || null;
 let controller = null;      // AbortController for the in-flight request
 let sessionTokens = 0;
@@ -194,10 +210,18 @@ function authHeaders() {
     h['x-ar-ua'] = id.ua;
     h['x-ar-extra'] = JSON.stringify(id.headers || {});
   } else if (id) {
-    // Direct (no proxy): send what the browser is allowed to send.
+    /* Direct from the browser (no proxy).
+       Browsers can't set User-Agent, but AgentRouter's client check is
+       satisfied by the `originator` header — verified: this exact value is
+       accepted while any other value returns "unauthorized client detected".
+       This is what makes a public deploy work: the call leaves the visitor's
+       own IP, so the relay's firewall doesn't see a datacenter address. */
     Object.entries(id.headers || {}).forEach(([k, v]) => { h[k] = v; });
+    if (cfg.client !== 'browser') h['originator'] = 'codex_cli_rs';
+    h['anthropic-dangerous-direct-browser-access'] = 'true';
   }
   return h;
+
 }
 
 
@@ -237,8 +261,36 @@ function buildBody(msgs, stream) {
   return body;
 }
 
+/* ---------------------------------------------------------------
+   Firewall / anti-bot detection.
+   AgentRouter sits behind Aliyun's WAF, which answers requests coming from
+   cloud/datacenter IPs (i.e. a deployed serverless proxy) with an HTML
+   challenge page instead of JSON. That's what produced the confusing
+   "Unexpected token '<'" error. Detect it and say what to do.
+   --------------------------------------------------------------- */
+const WAF_RE = /aliyun_waf|<!doctype html|<html[\s>]/i;
+
+function wafMessage() {
+  return 'The relay replied with a firewall / anti-bot HTML page instead of JSON.'
+    + (!isLocal() && cfg.useProxy
+      ? '\n→ Its firewall blocks datacenter IPs, so this site\'s server-side proxy cannot reach it.'
+        + '\n   Fix: open Settings and untick "Route through proxy" so requests go straight'
+        + '\n   from your browser (allowed here — the relay sends CORS headers).'
+      : '\n→ Try again in a moment, or open ' + baseUrl() + ' in a tab once to clear the challenge.');
+}
+
+/* JSON parse that explains itself when the body isn't JSON */
+async function readJson(res) {
+  const txt = await res.text();
+  try { return JSON.parse(txt); } catch {
+    if (WAF_RE.test(txt)) throw new Error(wafMessage());
+    throw new Error('Expected JSON but the server returned:\n' + txt.slice(0, 200));
+  }
+}
+
 /* extract a readable error from any shape the relay returns */
 async function readError(res) {
+
   let detail = '';
   try {
     const txt = await res.text();
@@ -249,10 +301,12 @@ async function readError(res) {
     } catch { detail = txt; }
   } catch { /* ignore */ }
   const s = String(detail);
+  if (WAF_RE.test(s)) return `HTTP ${res.status} — ${wafMessage()}`;
   const hint = /unauthorized client|client detected|invalid client/i.test(s)
     ? '\n→ The relay rejected the CLIENT, not your key. Open Settings → "Client identity" and pick '
-      + '"Claude Code CLI" for claude-* models or "Codex / OpenAI CLI" for gpt-* models, '
-      + 'and make sure "Route through local proxy" is ON.'
+      + '"Codex / OpenAI CLI", which is the identity this relay accepts.'
+      + (cfg.useProxy ? '' : ' (Direct mode sends it as the "originator" header.)')
+
     : res.status === 401 ? '\n→ Check your API key.'
     : res.status === 404 ? '\n→ Check the base URL / model id.'
 
@@ -563,8 +617,9 @@ async function generateCaption(c) {
       method: 'POST', headers: authHeaders(), body: JSON.stringify(body),
     });
     if (!res.ok) return null;
-    const j = await res.json();
+    const j = await readJson(res);
     let out = cfg.provider === 'anthropic'
+
       ? (j.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('')
       : (j.choices?.[0]?.message?.content || '');
     if (typeof out !== 'string') return null;
@@ -691,7 +746,8 @@ async function send(text, isRetry = false) {
 
     if (!stream || !res.body || !(res.headers.get('content-type') || '').includes('event-stream')) {
       /* ---- non-streaming ---- */
-      const j = await res.json();
+      const j = await readJson(res);
+
       if (cfg.provider === 'anthropic') {
         (j.content || []).forEach((b) => {
           if (b.type === 'thinking') msg.thinking += b.thinking || '';
@@ -764,9 +820,10 @@ async function send(text, isRetry = false) {
             : '\n→ This site\'s /proxy endpoint did not respond. If you deployed it, '
               + 'make sure the serverless function is enabled (Vercel/Netlify).';
         } else if (!cfg.useProxy) {
+          extra = '\n→ Direct call failed. The relay may be unreachable from your network, '
+            + 'or an extension/ad-blocker blocked it.'
+            + (isLocal() ? ' You can also tick "Route through proxy" and run: python server.py' : '');
 
-          extra = '\n→ Direct browser calls are usually blocked by CORS. '
-            + 'Enable "Route through local proxy" in Settings and run: python server.py';
         } else {
           extra = '\n→ Network error reaching the relay. Check the base URL in Settings.';
         }
@@ -864,7 +921,10 @@ async function proxyAlive() {
    before you send a message (this is what "Failed to fetch" means). */
 async function checkServer(quiet = true) {
   const bar = $('offline');
+  // Direct mode doesn't use /proxy at all, so its status is irrelevant.
+  if (!cfg.useProxy) { bar.hidden = true; return true; }
   if (location.protocol === 'file:') {
+
     bar.hidden = false;
     bar.textContent = '⚠ Opened as a file:// page — the proxy is unavailable. Run "python server.py" and open http://127.0.0.1:8000/';
     return false;
@@ -888,8 +948,9 @@ async function fetchModels() {
   try {
     const res = await fetch(modelsUrl(), { headers: authHeaders() });
     if (!res.ok) throw new Error(await readError(res));
-    const j = await res.json();
+    const j = await readJson(res);
     const ids = (j.data || j.models || j || [])
+
       .map((m) => (typeof m === 'string' ? m : m.id || m.name))
       .filter(Boolean);
     if (!ids.length) throw new Error('No models returned by the server.');
@@ -915,8 +976,9 @@ async function testConnection() {
         : { model: cfg.model, max_tokens: 16, messages: [{ role: 'user', content: 'ping' }] }),
     });
     if (!res.ok) throw new Error(await readError(res));
-    await res.json();
+    await readJson(res);
     toast('Connection OK — ' + cfg.model, 'ok');
+
   } catch (e) {
     toast('Failed: ' + (e.message || e), 'error');
   } finally { btn.disabled = false; btn.textContent = old; }
@@ -1006,8 +1068,13 @@ function bind() {
   $('systemPrompt').oninput = (e) => { cfg.systemPrompt = e.target.value; saveCfg(); };
   $('client').onchange = (e) => {
     cfg.client = e.target.value; saveCfg();
-    if (!cfg.useProxy && cfg.client !== 'browser') toast('Client spoofing needs the local proxy enabled', 'error');
+    // Direct mode can't set User-Agent, but the `originator` header is what
+    // AgentRouter actually checks — so it still works without the proxy.
+    if (!cfg.useProxy && cfg.client !== 'codex' && cfg.client !== 'browser') {
+      toast('Direct mode: "Codex / OpenAI CLI" is the identity this relay accepts', 'error');
+    }
   };
+
   $('autoTitle').onchange = (e) => { cfg.autoTitle = e.target.checked; saveCfg(); };
   $('streaming').onchange = (e) => { cfg.streaming = e.target.checked; saveCfg(); };
 

@@ -87,9 +87,22 @@ export default async function handler(req) {
     return fail(502, 'Proxy could not reach upstream: ' + (e && e.message ? e.message : e));
   }
 
+  /* Some relays (AgentRouter is behind Aliyun's WAF) answer datacenter IPs —
+     which is what this function runs on — with an HTML anti-bot page instead of
+     JSON. Passing that through produced a cryptic "Unexpected token '<'" in the
+     browser, so translate it into an actionable JSON error. */
+  const ctype = upstream.headers.get('Content-Type') || '';
+  if (/text\/html/i.test(ctype)) {
+    return fail(502,
+      'The upstream relay returned an anti-bot/firewall HTML page instead of JSON. '
+      + 'Its firewall blocks datacenter IPs, so this site\'s serverless proxy cannot reach it. '
+      + 'Open Settings and untick "Route through proxy" to call the relay directly from your browser.');
+  }
+
   // stream the response straight through (keeps token-by-token output working)
   const out = cors(new Headers());
-  out.set('Content-Type', upstream.headers.get('Content-Type') || 'application/json');
+  out.set('Content-Type', ctype || 'application/json');
+
   out.set('Cache-Control', 'no-cache, no-transform');
   out.set('X-Accel-Buffering', 'no');
   return new Response(upstream.body, { status: upstream.status, headers: out });

@@ -84,8 +84,19 @@ export default async (req) => {
     return fail(502, 'Proxy could not reach upstream: ' + (e && e.message ? e.message : e));
   }
 
+  /* Datacenter IPs (which this function runs on) can get an anti-bot HTML page
+     from relays behind a WAF. Return actionable JSON instead of raw HTML. */
+  const ctype = upstream.headers.get('Content-Type') || '';
+  if (/text\/html/i.test(ctype)) {
+    return fail(502,
+      'The upstream relay returned an anti-bot/firewall HTML page instead of JSON. '
+      + 'Its firewall blocks datacenter IPs, so this site\'s serverless proxy cannot reach it. '
+      + 'Open Settings and untick "Route through proxy" to call the relay directly from your browser.');
+  }
+
   const out = cors(new Headers());
-  out.set('Content-Type', upstream.headers.get('Content-Type') || 'application/json');
+  out.set('Content-Type', ctype || 'application/json');
+
   out.set('Cache-Control', 'no-cache, no-transform');
   out.set('X-Accel-Buffering', 'no');
   return new Response(upstream.body, { status: upstream.status, headers: out });
