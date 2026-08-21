@@ -119,7 +119,10 @@ const MODEL_STYLE = [
   [/deepseek/i,       { ic: '⌬', c: '#4d6bfe' }],
   [/llama|mistral|qwen/i, { ic: '⬢', c: '#7c5cff' }],
 ];
-const styleOf = (m) => (MODEL_STYLE.find(([re]) => re.test(m)) || [null, { ic: '◈', c: '#6f8dff' }])[1];
+/* Unknown models fall back to the theme's green so nothing looks off-palette.
+   Known families keep their brand colours — that's what makes chips scannable. */
+const styleOf = (m) => (MODEL_STYLE.find(([re]) => re.test(m)) || [null, { ic: '◈', c: '#22c55e' }])[1];
+
 
 /* ---------------- tiny helpers ---------------- */
 const $ = (id) => document.getElementById(id);
