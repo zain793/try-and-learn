@@ -453,12 +453,69 @@ function whenLabel(ts) {
   return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
+/* ---- sidebar nav state: search text, and whether we're filtered to pins ---- */
+let listQuery = '';
+let pinsOnly  = false;
+
+/** Does this chat match the search box? Titles first, then message text. */
+function chatMatches(c, q) {
+  if (!q) return true;
+  if ((c.title || '').toLowerCase().includes(q)) return true;
+  return (c.messages || []).some((m) => {
+    const t = typeof m.content === 'string' ? m.content
+            : Array.isArray(m.content) ? m.content.filter((b) => b.type === 'text').map((b) => b.text).join(' ')
+            : '';
+    return t.toLowerCase().includes(q);
+  });
+}
+
 function renderChatList() {
   const wrap = $('chatList'); wrap.innerHTML = '';
+
+  const pinCount = chats.filter((c) => c.pinned).length;
+  const pc = $('pinnedCount'); if (pc) pc.textContent = pinCount || '';
+  const pb = $('pinnedBtn');   if (pb) pb.classList.toggle('on', pinsOnly);
+
   if (!chats.length) { wrap.appendChild(el('div', 'side-empty', 'No chats yet')); return; }
 
-  chats.forEach((c) => {
+  const q = listQuery.trim().toLowerCase();
+  let list = chats.filter((c) => chatMatches(c, q));
+  if (pinsOnly) list = list.filter((c) => c.pinned);
+
+  if (!list.length) {
+    wrap.appendChild(el('div', 'side-empty',
+      pinsOnly ? 'No pinned chats yet — hover a chat and press 📌' : 'Nothing matches “' + listQuery.trim() + '”'));
+    return;
+  }
+
+  // Pinned on top, then Recents — matching the sidebar nav
+  const pinned  = list.filter((c) => c.pinned);
+  const recents = list.filter((c) => !c.pinned);
+  const groups  = pinsOnly
+    ? [['Pinned', pinned]]
+    : [['Pinned', pinned], [q ? 'Results' : 'Recents', recents]];
+
+  groups.forEach(([label, items]) => {
+    if (!items.length) return;
+    const head = el('div', 'list-head', label);
+    if (label === 'Pinned' && !pinsOnly) {
+      const a = el('button', 'lh-act', 'only pinned');
+      a.onclick = () => { pinsOnly = true; renderChatList(); };
+      head.appendChild(a);
+    }
+    if (pinsOnly && label === 'Pinned') {
+      const a = el('button', 'lh-act', 'show all');
+      a.onclick = () => { pinsOnly = false; renderChatList(); };
+      head.appendChild(a);
+    }
+    wrap.appendChild(head);
+    items.forEach((it) => renderChatRow(it));
+  });
+
+
+  function renderChatRow(c) {
     const row = el('div', 'chat-item' + (c.id === currentId ? ' active' : ''));
+
     row.appendChild(el('span', 'ic', styleOf(c.model || cfg.model).ic));
 
     // caption + a small second line so old chats are easy to recognise
@@ -466,13 +523,28 @@ function renderChatList() {
     const title = c.title || 'New chat';
     txt.appendChild(el('span', 'tt', title));
     const n = (c.messages || []).length;
-    txt.appendChild(el('span', 'sub', whenLabel(c.ts) + (n ? ' · ' + n + ' msg' + (n === 1 ? '' : 's') : '')));
+    // the pin marker lives on the meta line, because the action buttons only
+    // appear on hover — you'd otherwise have no idea what's pinned
+    txt.appendChild(el('span', 'sub', (c.pinned ? '📌 ' : '')
+      + whenLabel(c.ts) + (n ? ' · ' + n + ' msg' + (n === 1 ? '' : 's') : '')));
+
     txt.title = title;
     row.appendChild(txt);
 
     const acts = el('span', 'row-acts');
 
+    const pin = el('span', 'act' + (c.pinned ? ' on' : ''), c.pinned ? '📌' : '📍');
+    pin.title = c.pinned ? 'Unpin this chat' : 'Pin this chat to the top';
+    pin.onclick = (e) => {
+      e.stopPropagation();
+      c.pinned = !c.pinned;
+      saveChats(); renderChatList();
+      toast(c.pinned ? 'Pinned' : 'Unpinned', 'ok');
+    };
+    acts.appendChild(pin);
+
     const ren = el('span', 'act', '✎');
+
     ren.title = 'Rename this chat';
     ren.onclick = (e) => {
       e.stopPropagation();
@@ -508,8 +580,9 @@ function renderChatList() {
     row.appendChild(acts);
     row.onclick = () => { currentId = c.id; renderChatList(); renderMessages(); closeSidebar(); };
     wrap.appendChild(row);
-  });
+  }
 }
+
 
 
 function welcome() {
@@ -1086,6 +1159,21 @@ const isDrawerOpen = () => document.body.classList.contains('settings-open');
 const toggleDrawer = () => (isDrawerOpen() ? closeDrawer() : openDrawer());
 const closeSidebar = () => $('sidebar').classList.remove('open');
 
+/* Collapse the sidebar to an icon-only rail (labels return as tooltips).
+   On narrow screens the sidebar is already an off-canvas drawer, so the rail
+   would just be a second, conflicting way to hide it — open/close it instead. */
+function setRail(on) {
+  if (window.matchMedia('(max-width:900px)').matches) {
+    $('sidebar').classList.toggle('open');
+    return;
+  }
+  document.body.classList.toggle('rail', on);
+  cfg.rail = on; saveCfg();
+  const b = $('collapseBtn');
+  if (b) b.dataset.tip = on ? 'Expand sidebar' : 'Collapse sidebar';
+}
+
+
 
 function autoGrow() {
   const t = $('prompt');
@@ -1306,6 +1394,48 @@ function bind() {
   $('exportBtn').onclick = exportChat;
   $('menuBtn').onclick = () => $('sidebar').classList.toggle('open');
 
+  /* ---- sidebar nav: Search / Pinned / Recents / collapse ---- */
+  const searchWrap = $('searchWrap');
+  const searchIn = $('searchInput');
+
+  function showSearch(on) {
+    // Opening from the collapsed rail would hide the box, so expand first.
+    if (on && document.body.classList.contains('rail')) setRail(false);
+    searchWrap.hidden = !on;
+    $('searchBtn').classList.toggle('on', on);
+    if (on) searchIn.focus();
+    else if (listQuery) { listQuery = ''; searchIn.value = ''; renderChatList(); }
+  }
+  $('searchBtn').onclick = () => showSearch(searchWrap.hidden);
+  searchIn.oninput = (e) => { listQuery = e.target.value; renderChatList(); };
+  searchIn.onkeydown = (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); showSearch(false); $('prompt').focus(); }
+    if (e.key === 'Enter') {                        // jump into the first hit
+      const first = $('chatList').querySelector('.chat-item');
+      if (first) first.click();
+    }
+  };
+
+  $('pinnedBtn').onclick = () => {
+    if (document.body.classList.contains('rail')) setRail(false);
+    if (!chats.some((c) => c.pinned)) { toast('Nothing pinned yet — hover a chat and press 📍', 'error'); return; }
+    pinsOnly = !pinsOnly;
+    renderChatList();
+  };
+
+  $('recentsBtn').onclick = () => {                 // clear all filters
+    if (document.body.classList.contains('rail')) setRail(false);
+    pinsOnly = false;
+    if (listQuery) { listQuery = ''; searchIn.value = ''; }
+    searchWrap.hidden = true;
+    $('searchBtn').classList.remove('on');
+    renderChatList();
+    $('chatList').scrollTop = 0;
+  };
+
+  $('collapseBtn').onclick = () => setRail(!document.body.classList.contains('rail'));
+
+
   // drawer — sidebar gear toggles it, ✕ / backdrop / Esc close it
   $('settingsBtn2').onclick = () => { closeSidebar(); toggleDrawer(); };
 
@@ -1314,7 +1444,13 @@ function bind() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { closeDrawer(); closeSidebar(); }
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) send();
+    // Ctrl/Cmd+K → search chats (the shortcut everyone already tries)
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      showSearch(true);
+    }
   });
+
 
 
   // theme
@@ -1412,6 +1548,8 @@ function bind() {
   bind();
   fillSettings();          // populate fields without opening the panel
   setMode(cfg.mode === 'build' ? 'build' : 'chat');
+  if (cfg.rail && !window.matchMedia('(max-width:900px)').matches) setRail(true);
+
 
 
   /* Migrate chats saved by older versions, whose title was just a copy of

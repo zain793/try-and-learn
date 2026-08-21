@@ -149,7 +149,22 @@ The active model is shown under the chat title in the top bar. Manage models ins
 Icons and colours are chosen automatically from the model name
 (opus/sonnet/haiku → orange ✳, gpt/o-series → green ◎, gemini → blue ✦, …).
 
+## Sidebar
+
+| Item | Does |
+|---|---|
+| **✎ New chat** | starts a fresh conversation (each keeps its own build project) |
+| **🔍 Search** | filters by caption **and** message text — `Ctrl/Cmd+K`, `Enter` opens the top hit, `Esc` closes |
+| **📌 Pinned** | jumps to your pinned chats; click again to leave the filter. The badge counts them |
+| **🕒 Recents** | clears search + pin filters and scrolls back to the top |
+
+Pin any chat by hovering it and pressing **📍** (a pinned row keeps its 📌 marker
+visible, so you can tell at a glance). Pinned chats are grouped above **Recents**.
+The button at the top-right of the logo collapses the sidebar to an icon-only
+rail — labels come back as hover tooltips, and the state is remembered.
+
 ## Chat captions
+
 
 Sidebar rows are **not** the raw first message (a chat starting with “hi” would be
 useless to find later). Instead each row gets a topic caption plus a second line
