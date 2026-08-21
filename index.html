@@ -29,6 +29,12 @@
         </div>
       </div>
       <button class="btn primary block" id="newChatBtn">＋ New chat</button>
+
+      <div class="mode-switch" role="tablist" aria-label="Mode">
+        <button class="ms" id="modeChat" data-mode="chat" role="tab" aria-selected="true">💬 Chat</button>
+        <button class="ms" id="modeBuild" data-mode="build" role="tab" aria-selected="false">🛠 Build</button>
+      </div>
+
     </div>
 
     <div class="chat-list" id="chatList"></div>
@@ -56,21 +62,64 @@
 
     <div class="offline" id="offline" hidden></div>
 
-    <section class="messages" id="messages"></section>
+    <div class="split">
+      <div class="pane-chat">
+        <section class="messages" id="messages"></section>
 
-
-    <footer class="composer">
-      <div class="composer-box">
-        <textarea id="prompt" rows="1" placeholder="Send a message…  (Enter to send · Shift+Enter for a new line)"></textarea>
-        <div class="composer-actions">
-          <button class="btn danger" id="stopBtn" hidden>■ Stop</button>
-          <button class="btn primary" id="sendBtn">Send</button>
-        </div>
+        <footer class="composer">
+          <div class="attachments" id="attachments" hidden></div>
+          <div class="composer-box">
+            <textarea id="prompt" rows="1" placeholder="Send a message…  (Enter to send · Shift+Enter for a new line)"></textarea>
+            <div class="composer-actions">
+              <button class="btn icon" id="attachBtn" title="Attach images (or paste / drag one in)">🖼</button>
+              <button class="btn danger" id="stopBtn" hidden>■ Stop</button>
+              <button class="btn primary" id="sendBtn">Send</button>
+            </div>
+          </div>
+          <div class="composer-meta" id="composerMeta"></div>
+          <input type="file" id="fileInput" accept="image/*" multiple hidden>
+        </footer>
       </div>
-      <div class="composer-meta" id="composerMeta"></div>
-    </footer>
+
+      <!-- ───────── build workspace (v0-style live preview) ───────── -->
+      <section class="workspace" id="workspace" hidden aria-label="Build workspace">
+        <div class="ws-head">
+          <div class="ws-tabs">
+            <button class="ws-tab active" data-ws="preview">👁 Preview</button>
+            <button class="ws-tab" data-ws="code">&lt;/&gt; Code</button>
+          </div>
+          <span class="ws-count" id="wsCount"></span>
+          <div class="spacer"></div>
+          <button class="btn icon" id="wsRefresh" title="Reload preview">↻</button>
+          <button class="btn icon" id="wsOpen" title="Open preview in a new tab">⇗</button>
+          <button class="btn icon" id="wsZip" title="Download all files as .zip">⤓</button>
+        </div>
+
+        <div class="ws-empty" id="wsEmpty">
+          <div class="ws-empty-in">
+            <b>Nothing built yet</b>
+            <p>Describe what you want and it appears here, running — then keep refining it with follow-up prompts.</p>
+            <div class="ws-ideas">
+              <button class="card" data-p="Build a landing page for an on-chain lottery called Ink Pot: bold hero 'One Winner Takes All', wallet connect button, three stat cards (last winner, your tickets, total tickets), and a prize-pool section. Dark theme, amber accents.">Lottery landing page</button>
+              <button class="card" data-p="Build a pomodoro timer with a circular progress ring, start/pause/reset, session counter, and a settings row for work/break length. Clean minimal design.">Pomodoro timer</button>
+              <button class="card" data-p="Build a kanban board with three columns, draggable cards, add/delete cards, and localStorage persistence.">Kanban board</button>
+              <button class="card" data-p="Build a personal portfolio page: sticky nav, hero with photo placeholder, projects grid, skills, contact form. Responsive and elegant.">Portfolio site</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="ws-body" id="wsBody" hidden>
+          <div class="ws-pane" id="wsPreview">
+            <iframe id="wsFrame" title="Live preview"
+                    sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
+          </div>
+          <div class="ws-pane" id="wsCode" hidden></div>
+        </div>
+      </section>
+    </div>
   </main>
 </div>
+
 
 <!-- ───────────── settings drawer ───────────── -->
 <div class="backdrop" id="backdrop"></div>
@@ -196,6 +245,8 @@
 <div class="toasts" id="toasts"></div>
 
 <script src="markdown.js"></script>
+<script src="build.js"></script>
 <script src="app.js"></script>
+
 </body>
 </html>

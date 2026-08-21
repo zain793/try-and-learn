@@ -268,16 +268,48 @@ function authHeaders() {
 
 
 /* ---------------- request body ---------------- */
+/* Images are stored as data URLs; each provider wants a different shape.
+   Returns either a plain string (no images) or the provider's block array. */
+function contentFor(m, provider) {
+  const imgs = (m.images || []).filter((i) => i && i.data);
+  const text = String(m.content || '');
+  if (!imgs.length) return text;
+
+  if (provider === 'anthropic') {
+    const blocks = imgs.map((i) => ({
+      type: 'image',
+      source: { type: 'base64', media_type: i.type || 'image/png', data: i.data.split(',').pop() },
+    }));
+    if (text) blocks.push({ type: 'text', text });
+    return blocks;
+  }
+  const blocks = imgs.map((i) => ({ type: 'image_url', image_url: { url: i.data } }));
+  if (text) blocks.unshift({ type: 'text', text });
+  return blocks;
+}
+
+/* The effective system prompt: the user's, plus build-mode instructions and
+   the current project files when the workspace is active. */
+function systemFor() {
+  let s = (cfg.systemPrompt || '').trim();
+  if (BUILD.active) {
+    s = (s ? s + '\n\n' : '') + BUILD.systemPrompt() + BUILD.filesContext();
+  }
+  return s;
+}
+
 function buildBody(msgs, stream) {
   const think = cfg.thinking || 'none';
+  const sys = systemFor();
   if (cfg.provider === 'anthropic') {
     const body = {
       model: cfg.model,
       max_tokens: Number(cfg.maxTokens) || 8192,
       stream: !!stream,
-      messages: msgs.map((m) => ({ role: m.role, content: m.content })),
+      messages: msgs.map((m) => ({ role: m.role, content: contentFor(m, 'anthropic') })),
     };
-    if (cfg.systemPrompt.trim()) body.system = cfg.systemPrompt.trim();
+    if (sys) body.system = sys;
+
     if (think !== 'none' && THINK_BUDGET[think]) {
       const budget = Math.min(THINK_BUDGET[think], Math.max(1024, body.max_tokens - 1024));
       body.thinking = { type: 'enabled', budget_tokens: budget };
@@ -289,8 +321,9 @@ function buildBody(msgs, stream) {
   }
   // OpenAI compatible
   const list = [];
-  if (cfg.systemPrompt.trim()) list.push({ role: 'system', content: cfg.systemPrompt.trim() });
-  msgs.forEach((m) => list.push({ role: m.role, content: m.content }));
+  if (sys) list.push({ role: 'system', content: sys });
+  msgs.forEach((m) => list.push({ role: m.role, content: contentFor(m, 'openai') }));
+
   const body = {
     model: cfg.model,
     messages: list,
@@ -495,8 +528,81 @@ function welcome() {
   return w;
 }
 
+/* In build mode the workspace shows the code, so the transcript only needs a
+   one-line "📄 index.html · 120 lines written" marker per file. */
+function displayText(m) {
+  return (m.role === 'assistant' && m.wrote && m.wrote.length)
+    ? BUILD.forDisplay(m.content || '')
+    : (m.content || '');
+}
+
+/* "Task 3 of 4 complete", read from the reply's own checklist */
+function progressNode(p) {
+  const d = el('details', 'bprog');
+  const total = p.items.length;
+  const sum = el('summary');
+  sum.appendChild(el('span', null,
+    p.done >= total ? `✓ All ${total} tasks complete` : `Task ${Math.min(p.done + 1, total)} of ${total}`));
+  const bar = el('div', 'pbar');
+  const fill = document.createElement('i');
+  fill.style.width = Math.round((p.done / total) * 100) + '%';
+  bar.appendChild(fill);
+  sum.appendChild(bar);
+  d.appendChild(sum);
+  const ul = document.createElement('ul');
+  p.items.forEach((it) => {
+    const li = el('li', it.done ? 'done' : null, (it.done ? '✓ ' : '○ ') + it.label);
+    ul.appendChild(li);
+  });
+  d.appendChild(ul);
+  return d;
+}
+
+/* While a reply streams, complete files land in the workspace immediately, so
+   you watch the thing being built. Half-written fences simply don't parse yet.
+   Throttled: each absorb reloads the iframe. */
+let liveAt = 0;
+function liveAbsorb(text) {
+  const now = performance.now();
+  if (now - liveAt < 800) return;
+  liveAt = now;
+  BUILD.absorb(text);
+}
+
+/* clickable list of files a reply wrote */
+
+function wroteNode(list) {
+  const w = el('div', 'wrote');
+  list.forEach((f) => {
+    const b = el('button', 'f', '📄 ' + f);
+    b.title = 'Show ' + f + ' in the workspace';
+    b.onclick = () => {
+      if (!BUILD.active) setMode('build');
+      document.querySelector('.ws-tab[data-ws="code"]')?.click();
+    };
+    w.appendChild(b);
+  });
+  return w;
+}
+
+/* ---- Chat ⇄ Build ---- */
+function setMode(mode) {
+  const on = mode === 'build';
+  BUILD.setActive(on);
+  cfg.mode = mode; saveCfg();
+  $('modeChat').classList.toggle('on', !on);
+  $('modeBuild').classList.toggle('on', on);
+  $('modeChat').setAttribute('aria-selected', String(!on));
+  $('modeBuild').setAttribute('aria-selected', String(on));
+  $('prompt').placeholder = on
+    ? 'Describe what to build, or ask for a change…  (Shift+Enter for a new line)'
+    : 'Send a message…  (Enter to send · Shift+Enter for a new line)';
+  BUILD.render();
+}
+
 function messageNode(m, i) {
   const wrap = el('div', 'msg ' + m.role);
+
   const s = styleOf(m.model || cfg.model);
   const av = el('div', 'avatar', m.role === 'user' ? '🧑' : s.ic);
   if (m.role === 'assistant') av.style.setProperty('--c', s.c);
@@ -527,6 +633,17 @@ function messageNode(m, i) {
   head.appendChild(act);
   bub.appendChild(head);
 
+  if (m.images && m.images.length) {
+    const g = el('div', 'msg-imgs');
+    m.images.forEach((im) => {
+      const i = document.createElement('img');
+      i.src = im.data; i.alt = im.name || 'image';
+      i.onclick = () => window.open(im.data, '_blank');
+      g.appendChild(i);
+    });
+    bub.appendChild(g);
+  }
+
   if (m.thinking) {
     const d = el('details', 'think');
     d.appendChild(el('summary', null, '🧠 Thinking'));
@@ -534,9 +651,17 @@ function messageNode(m, i) {
     bub.appendChild(d);
   }
 
+  if (m.role === 'assistant') {
+    const p = BUILD.progressOf(m.content);
+    if (p) bub.appendChild(progressNode(p));
+  }
+
   const body = el('div', 'md');
-  body.innerHTML = MD.render(m.content || '');
+  body.innerHTML = MD.render(displayText(m));
   bub.appendChild(body);
+
+  if (m.wrote && m.wrote.length) bub.appendChild(wroteNode(m.wrote));
+
 
   if (m.error) bub.appendChild(el('div', 'err', m.error));
 
@@ -574,11 +699,13 @@ function updateMeta() {
     (cfg.useProxy ? `<span>via ${isLocal() ? 'local' : 'site'} proxy</span>` : '');
 
   renderTopBar();
+  BUILD.render();          // the workspace follows the active chat's project
 }
 
 
 /* =========================================================
    chat captions
+
    Instead of dumping the first message ("hi") into the sidebar, we
    derive a short topic. Two stages:
      1. instant local guess, so the row is never just "hi"
@@ -733,8 +860,11 @@ async function send(text, isRetry = false) {
 
   if (!isRetry) {
     const t = (text ?? $('prompt').value).trim();
-    if (!t) return;
-    c.messages.push({ role: 'user', content: t, ts: Date.now() });
+    if (!t && !pending.length) return;
+    const um = { role: 'user', content: t, ts: Date.now() };
+    if (pending.length) { um.images = pending.slice(); pending = []; renderAttachments(); }
+    c.messages.push(um);
+
     // provisional caption only — never the raw first message like "hi".
     if (!c.titleLocked && (!c.title || c.title === 'New chat' || c.titleAuto)) {
       c.title = localCaption(c); c.titleAuto = true;
@@ -769,13 +899,16 @@ async function send(text, isRetry = false) {
     }
     const tk = node.querySelector('details.think .tk');
     if (tk) { tk.textContent = msg.thinking; tk.scrollTop = tk.scrollHeight; }
-    body.innerHTML = MD.render(msg.content);
+    body.innerHTML = MD.render(BUILD.active ? BUILD.forDisplay(msg.content) : msg.content);
     const box = $('messages');
     if (box.scrollHeight - box.scrollTop - box.clientHeight < 160) box.scrollTop = box.scrollHeight;
+    if (BUILD.active) liveAbsorb(msg.content);   // preview updates as it writes
   };
 
   try {
-    const history = c.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content }));
+    const history = c.messages.slice(0, -1)
+      .map((m) => ({ role: m.role, content: m.content, images: m.images }));
+
     const stream = !!cfg.streaming;
     const res = await fetch(endpoint(), {
       method: 'POST',
@@ -877,7 +1010,20 @@ async function send(text, isRetry = false) {
     controller = null;
     $('stopBtn').hidden = true; $('sendBtn').disabled = false;
     body.classList.remove('caret');
+
+    /* Final absorb: catches the last file, whose closing fence may have
+       arrived after the throttle window. `wrote` also drives the file chips
+       and keeps the transcript compact on reload. */
+    if (BUILD.active) {
+      liveAt = 0;
+      const wrote = BUILD.absorb(msg.content);
+      if (wrote.length) {
+        msg.wrote = wrote;
+        toast(wrote.length === 1 ? 'Updated ' + wrote[0] : 'Wrote ' + wrote.length + ' files', 'ok');
+      }
+    }
     saveChats();
+
     renderMessages();
     renderChatList();
     $('prompt').focus();
@@ -1041,9 +1187,85 @@ function exportChat() {
 }
 
 /* =========================================================
+   image attachments
+   Images ride along with the next message. They're downscaled first:
+   full-resolution phone photos waste tokens and can blow past request
+   limits, and localStorage would fill up in a handful of chats.
+   ========================================================= */
+let pending = [];                 // [{data, type, name}]
+const MAX_IMAGES = 6;
+const MAX_EDGE = 1400;            // px on the long side
+const VISION_HINT = /gpt-3|o1-mini|instruct|embed|whisper|tts/i;
+
+function shrink(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(new Error('Could not read ' + file.name));
+    fr.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Not a readable image: ' + file.name));
+      img.onload = () => {
+        const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+        /* Small PNGs (icons, screenshots of UI) stay lossless; anything we
+           resize becomes JPEG, which is far smaller for photos. */
+        if (scale === 1 && file.size < 900 * 1024) {
+          resolve({ data: fr.result, type: file.type || 'image/png', name: file.name || 'image' });
+          return;
+        }
+        const cv = document.createElement('canvas');
+        cv.width = Math.round(img.width * scale);
+        cv.height = Math.round(img.height * scale);
+        const cx = cv.getContext('2d');
+        cx.drawImage(img, 0, 0, cv.width, cv.height);
+        resolve({
+          data: cv.toDataURL('image/jpeg', 0.86),
+          type: 'image/jpeg',
+          name: file.name || 'image',
+        });
+      };
+      img.src = fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+
+function renderAttachments() {
+  const box = $('attachments');
+  box.innerHTML = '';
+  box.hidden = !pending.length;
+  pending.forEach((p, i) => {
+    const a = el('div', 'att');
+    const im = document.createElement('img');
+    im.src = p.data; im.alt = p.name || 'attachment';
+    a.appendChild(im);
+    const x = el('button', 'x', '✕');
+    x.title = 'Remove';
+    x.onclick = () => { pending.splice(i, 1); renderAttachments(); };
+    a.appendChild(x);
+    box.appendChild(a);
+  });
+}
+
+async function addImages(list) {
+  const files = [...list].filter((f) => f && /^image\//.test(f.type));
+  if (!files.length) { toast('Only image files can be attached', 'error'); return; }
+  const room = MAX_IMAGES - pending.length;
+  if (room <= 0) { toast(`Up to ${MAX_IMAGES} images per message`, 'error'); return; }
+
+  for (const f of files.slice(0, room)) {
+    try { pending.push(await shrink(f)); }
+    catch (e) { toast(String(e.message || e), 'error'); }
+  }
+  renderAttachments();
+  if (files.length > room) toast(`Only the first ${room} image(s) were added`, 'error');
+  if (VISION_HINT.test(cfg.model)) toast(`"${cfg.model}" may not accept images — pick a vision model if it errors`, 'error');
+}
+
+/* =========================================================
    wiring
    ========================================================= */
 function bind() {
+
   // composer
   $('sendBtn').onclick = () => send();
   $('stopBtn').onclick = () => controller?.abort();
@@ -1052,8 +1274,32 @@ function bind() {
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); }
   });
 
+  // images: button, file picker, paste, drag & drop
+  $('attachBtn').onclick = () => $('fileInput').click();
+  $('fileInput').onchange = (e) => { addImages(e.target.files); e.target.value = ''; };
+  $('prompt').addEventListener('paste', (e) => {
+    const imgs = [...(e.clipboardData?.files || [])].filter((f) => /^image\//.test(f.type));
+    if (imgs.length) { e.preventDefault(); addImages(imgs); }
+  });
+  const cbox = document.querySelector('.composer-box');
+  ['dragenter', 'dragover'].forEach((n) => cbox.addEventListener(n, (e) => {
+    if ([...(e.dataTransfer?.types || [])].includes('Files')) { e.preventDefault(); cbox.classList.add('drop'); }
+  }));
+  ['dragleave', 'drop'].forEach((n) => cbox.addEventListener(n, () => cbox.classList.remove('drop')));
+  cbox.addEventListener('drop', (e) => {
+    if (e.dataTransfer?.files?.length) { e.preventDefault(); addImages(e.dataTransfer.files); }
+  });
+
+  // Chat ⇄ Build
+  $('modeChat').onclick = () => setMode('chat');
+  $('modeBuild').onclick = () => setMode('build');
+  document.querySelectorAll('.ws-ideas .card').forEach((b) => {
+    b.onclick = () => { $('prompt').value = b.dataset.p; autoGrow(); $('prompt').focus(); };
+  });
+
   // chats
   $('newChatBtn').onclick = () => {
+
     const c = { id: uid(), title: 'New chat', model: cfg.model, provider: cfg.provider, ts: Date.now(), messages: [] };
     chats.unshift(c); currentId = c.id; saveChats(); renderChatList(); renderMessages(); closeSidebar(); $('prompt').focus();
   };
@@ -1162,8 +1408,11 @@ function bind() {
 (function init() {
   document.documentElement.dataset.theme = cfg.theme || 'dark';
   $('themeBtn').textContent = cfg.theme === 'light' ? '☀' : '🌙';
+  BUILD.init({ getChat: () => chat(), save: saveChats, toast });
   bind();
   fillSettings();          // populate fields without opening the panel
+  setMode(cfg.mode === 'build' ? 'build' : 'chat');
+
 
   /* Migrate chats saved by older versions, whose title was just a copy of
      the first message (e.g. "hi"). Give them a real caption instead. */

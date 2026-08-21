@@ -3,6 +3,14 @@
 A single-page chat UI for your **own** GPT / Claude models through [AgentRouter](https://agentrouter.org/)
 (or any OpenAI-/Anthropic-compatible relay). Your API key and chats stay in your browser.
 
+Two modes:
+
+* **💬 Chat** — a normal assistant, with image attachments and streamed replies.
+* **🛠 Build** — a v0/Bolt-style workspace. Describe an app, watch the model write
+  the files, and see it **running live** next to the conversation. Keep prompting
+  to refine it, then download the whole thing as a `.zip`.
+
+
 
 ![chips](https://img.shields.io/badge/models-claude--opus--5%20%C2%B7%20gpt--5.6--sol-blue)
 
@@ -160,10 +168,51 @@ showing when it happened and how many messages it has:
 | Regenerate caption | hover a row → **↻** |
 | Turn AI naming off | Settings → *Name chats automatically* (local captions still apply) |
 
+## 🛠 Build mode
+
+Flip the sidebar switch to **Build** and the screen splits: conversation on the
+left, a live workspace on the right.
+
+```
+You:  Build a landing page for an on-chain lottery. Dark theme, amber accents.
+      → files appear and the page renders as it's written
+You:  Make the hero taller and add a countdown to the next draw.
+      → only the changed files are rewritten; the preview refreshes
+```
+
+| Control | Does |
+|---|---|
+| **👁 Preview** | the project running in a sandboxed iframe |
+| **`</>` Code** | file tree + source, with per-file **Copy** / **Save** |
+| **↻** | re-render the preview |
+| **⇗** | open the result in its own browser tab |
+| **⤓** | download every file as a `.zip` |
+
+How it works: the model is asked to emit whole files in fences tagged
+` ```file:index.html `. Those blocks are pulled out into a virtual file system
+stored **on the chat** (so it's saved and restored with the conversation), and
+`index.html` is assembled into one self-contained document — sibling
+`<link>`/`<script src>` references are inlined, because an iframe can't fetch
+files that only exist in memory. Runtime errors surface in a red strip at the
+bottom of the preview instead of a console you'd never open.
+
+The transcript stays readable: each written file collapses to a
+`📄 index.html · 214 lines written` line, and a “Task 2 of 4” bar tracks the
+model's own checklist. Every follow-up prompt resends the current files, so
+edits build on what is actually there rather than on the model's memory.
+
+Notes: it's a **static** sandbox — plain HTML/CSS/JS, no npm, no build step, no
+JSX (CDN `<script>` tags like Tailwind are fine). Each chat keeps its own
+project, so start a new chat for a new app.
+
 ## Features
 
 
 - Streaming (SSE) for both API formats, with **Stop** mid-generation
+- **Image input** — click 🖼, paste, or drag images into the composer; they're
+  downscaled to ≤1400px before sending, so you don't burn tokens on a 12 MP photo.
+  Works with both API shapes (Anthropic blocks / OpenAI `image_url`)
+- **Build mode** with live preview and zip export (above)
 - Extended **thinking / reasoning** shown in a collapsible “🧠 Thinking” block
 - Markdown rendering: headings, lists, tables, quotes, code blocks with **Copy**
 - Multi-chat sidebar with auto titles, delete, and Markdown export (⤓)
@@ -171,16 +220,19 @@ showing when it happened and how many messages it has:
 - Dark & light theme, mobile responsive
 - Keyboard: `Enter` send · `Shift+Enter` newline · `Esc` close panels
 
+
 ## Files
 
 ```
-index.html    markup / settings drawer
-styles.css    theme, chips, bubbles, responsive layout
+index.html    markup / settings drawer / build workspace
+styles.css    theme, chips, bubbles, workspace, responsive layout
 markdown.js   dependency-free Markdown → safe HTML
-app.js        state, settings, requests, SSE streaming
+app.js        state, settings, requests, SSE streaming, image attachments
+build.js      build mode: file parser, virtual FS, live preview, zip export
 server.py     static server + streaming CORS proxy (stdlib only)
 start.bat     double-click launcher (Windows)
 ```
+
 
 ## Where your data lives
 

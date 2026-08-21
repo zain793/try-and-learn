@@ -1,4 +1,4 @@
-@echo off
+cmd@echo off
 title Try and Learn - local server (keep this window open)
 cd /d "%~dp0"
 

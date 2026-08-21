@@ -309,8 +309,133 @@ body.settings-open .drawer{transform:none; visibility:visible; pointer-events:au
 .toast.ok{border-color:var(--ok)}
 @keyframes pop{from{transform:translateY(8px); opacity:0}}
 
+/* ============ mode switch (Chat / Build) ============ */
+.mode-switch{
+  display:grid; grid-template-columns:1fr 1fr; gap:4px; margin-top:10px;
+  background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:4px;
+}
+.ms{
+  appearance:none; border:none; background:none; color:var(--txt2); cursor:pointer;
+  padding:7px 4px; border-radius:7px; font-size:12.5px; font-weight:700; transition:.15s;
+}
+.ms:hover{color:var(--txt)}
+.ms.on{background:var(--bg3); color:var(--txt); box-shadow:0 1px 0 rgba(0,0,0,.2)}
+
+/* ============ split: chat + workspace ============ */
+.split{flex:1; display:flex; min-height:0; min-width:0}
+.pane-chat{flex:1; display:flex; flex-direction:column; min-width:0; min-height:0}
+body.build-mode .pane-chat{flex:0 0 clamp(340px,34%,520px); border-right:1px solid var(--line)}
+body.build-mode .composer-box,
+body.build-mode .composer-meta{max-width:none}
+body.build-mode .msg.user .bub{max-width:92%}
+body.build-mode .welcome .cards{grid-template-columns:1fr}
+
+.workspace{flex:1; min-width:0; display:flex; flex-direction:column; background:var(--bg)}
+.ws-head{
+  display:flex; align-items:center; gap:8px; padding:8px 10px;
+  border-bottom:1px solid var(--line); background:var(--bg2);
+}
+.ws-tabs{display:flex; gap:4px; background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:3px}
+.ws-tab{
+  appearance:none; border:none; background:none; color:var(--txt2); cursor:pointer;
+  font:600 12px/1 var(--mono); padding:6px 10px; border-radius:6px;
+}
+.ws-tab:hover{color:var(--txt)}
+.ws-tab.active{background:var(--bg3); color:var(--txt)}
+.ws-count{font-size:11.5px; color:var(--txt3); font-family:var(--mono)}
+
+.ws-empty{flex:1; display:grid; place-items:center; padding:24px}
+.ws-empty-in{max-width:440px; text-align:center}
+.ws-empty-in b{display:block; font-size:15px; margin-bottom:6px}
+.ws-empty-in p{margin:0 0 16px; color:var(--txt3); font-size:13px; line-height:1.6}
+.ws-ideas{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.ws-ideas .card{text-align:center; font-size:12.5px; font-weight:600}
+
+.ws-body{flex:1; min-height:0; display:flex}
+.ws-pane{flex:1; min-width:0; min-height:0; display:flex}
+#wsFrame{flex:1; width:100%; height:100%; border:0; background:#fff}
+
+/* code view */
+#wsCode{display:flex; min-height:0}
+.ws-tree{
+  flex:0 0 190px; overflow:auto; border-right:1px solid var(--line);
+  background:var(--bg2); padding:8px; display:flex; flex-direction:column; gap:2px;
+}
+.ws-f{
+  appearance:none; display:flex; align-items:center; gap:7px; width:100%; text-align:left;
+  border:1px solid transparent; background:none; color:var(--txt2); cursor:pointer;
+  padding:6px 8px; border-radius:8px; font:12px/1.4 var(--mono);
+}
+.ws-f:hover{background:var(--bg3); color:var(--txt)}
+.ws-f.on{background:var(--bg3); color:var(--txt); border-color:var(--line)}
+.ws-f .fn{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.ws-src{flex:1; min-width:0; display:flex; flex-direction:column}
+.ws-srcbar{
+  display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--line);
+  background:var(--bg2); font:12px/1 var(--mono); color:var(--txt2);
+}
+.ws-srcbar b{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--txt)}
+.ws-srcbar .btn{padding:5px 9px; font-size:11.5px}
+.ws-pre{
+  flex:1; margin:0; overflow:auto; padding:10px 12px;
+  font:12.5px/1.65 var(--mono); tab-size:2; white-space:pre;
+}
+.ws-pre .ln{
+  display:inline-block; width:34px; margin-right:12px; text-align:right;
+  color:var(--txt3); opacity:.55; user-select:none;
+}
+
+/* build progress strip in a reply */
+.bprog{
+  margin:0 0 10px; border:1px solid var(--line); border-radius:10px; background:var(--bg3);
+  font-size:12.5px; overflow:hidden;
+}
+.bprog > summary{
+  cursor:pointer; padding:8px 11px; display:flex; align-items:center; gap:8px;
+  font-weight:700; color:var(--txt2); list-style:none;
+}
+.bprog > summary::-webkit-details-marker{display:none}
+.bprog .pbar{flex:1; height:4px; border-radius:999px; background:var(--bg); overflow:hidden}
+.bprog .pbar i{display:block; height:100%; background:var(--ok); transition:width .3s}
+.bprog ul{margin:0; padding:2px 12px 10px 30px; color:var(--txt2)}
+.bprog li{margin:3px 0}
+.bprog li.done{color:var(--txt3); text-decoration:line-through}
+
+/* files written, listed under a reply */
+.wrote{display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 0}
+.wrote .f{
+  font:11.5px/1 var(--mono); color:var(--txt2); background:var(--bg3);
+  border:1px solid var(--line); border-radius:999px; padding:5px 9px; cursor:pointer;
+}
+.wrote .f:hover{border-color:var(--acc); color:var(--txt)}
+
+/* ============ image attachments ============ */
+.attachments{
+  max-width:900px; margin:0 auto 8px; display:flex; flex-wrap:wrap; gap:8px;
+}
+body.build-mode .attachments{max-width:none}
+.att{
+  position:relative; width:74px; height:74px; border-radius:10px; overflow:hidden;
+  border:1px solid var(--line); background:var(--bg3);
+}
+.att img{width:100%; height:100%; object-fit:cover; display:block}
+.att .x{
+  position:absolute; top:2px; right:2px; width:20px; height:20px; border-radius:6px;
+  border:none; background:rgba(0,0,0,.65); color:#fff; cursor:pointer;
+  font-size:11px; line-height:20px; padding:0; text-align:center;
+}
+.att .x:hover{background:var(--err)}
+.msg-imgs{display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px}
+.msg-imgs img{
+  max-width:220px; max-height:200px; border-radius:10px; border:1px solid var(--line); cursor:zoom-in;
+}
+.composer-box.drop{border-color:var(--acc); background:color-mix(in srgb,var(--acc) 8%,var(--bg))}
+
 /* ============ responsive ============ */
 .only-mobile{display:none}
+@media (max-width:1100px){
+  body.build-mode .pane-chat{flex:0 0 min(46%,460px)}
+}
 @media (max-width:900px){
   .app{grid-template-columns:1fr}
   .sidebar{position:fixed; z-index:45; top:0; bottom:0; left:0; width:270px; transform:translateX(-100%); transition:.2s}
@@ -323,7 +448,16 @@ body.settings-open .drawer{transform:none; visibility:visible; pointer-events:au
   .msg.user .bub{max-width:86%}
 
   .composer{padding:10px 12px 12px}
+
+  /* stack instead of side-by-side; one pane at a time via the eye/chat toggle */
+  .split{flex-direction:column}
+  body.build-mode .pane-chat{flex:1 1 auto; border-right:none; border-bottom:1px solid var(--line)}
+  body.build-mode.ws-full .pane-chat{display:none}
+  body.build-mode:not(.ws-full) .workspace{flex:0 0 42%}
+  .ws-tree{flex-basis:140px}
+  .ws-ideas{grid-template-columns:1fr}
 }
+
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-thumb{background:var(--line); border-radius:8px; border:2px solid transparent; background-clip:content-box}
 ::-webkit-scrollbar-thumb:hover{background:var(--txt3); background-clip:content-box}
