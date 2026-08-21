@@ -31,7 +31,8 @@ const DEFAULTS = {
   models: DEFAULT_MODELS.slice(),
   favorites: ['claude-opus-4-8', 'claude-opus-5', 'gpt-5.6-sol'],
   thinking: 'xhigh',
-  maxTokens: 8192,
+  maxTokens: 16384,        // thinking is billed from this same pool — see buildBody()
+
   temperature: 1,
   systemPrompt: 'You are a helpful, precise assistant. Use Markdown for formatting.',
   streaming: true,
@@ -165,7 +166,18 @@ cfg.favorites = Array.isArray(cfg.favorites) ? cfg.favorites : [];
     cfg.routingFixed = true;
     try { localStorage.setItem(LS_CFG, JSON.stringify(cfg)); } catch { /* private mode */ }
   }
+
+  /* One-time bump of the old 8192 default. Saved settings would otherwise keep
+     the cramped budget that made thinking swallow the whole reply, and the fix
+     would only ever reach brand-new visitors. A value they chose themselves
+     (anything not exactly the old default) is left alone. */
+  if (!cfg.budgetFixed) {
+    if (Number(cfg.maxTokens) === 8192) cfg.maxTokens = DEFAULTS.maxTokens;
+    cfg.budgetFixed = true;
+    try { localStorage.setItem(LS_CFG, JSON.stringify(cfg)); } catch { /* private mode */ }
+  }
 }
+
 
 
 let chats = load(LS_CHATS, []);
@@ -314,13 +326,21 @@ function buildBody(msgs, stream) {
     if (sys) body.system = sys;
 
     if (think !== 'none' && THINK_BUDGET[think]) {
-      const budget = Math.min(THINK_BUDGET[think], Math.max(1024, body.max_tokens - 1024));
+      /* Anthropic bills thinking out of max_tokens, so the old math
+         (budget = max_tokens - 1024) left just 1024 tokens for the actual
+         answer. On a real task the model reasoned, hit the ceiling, and
+         returned zero text — the "(empty response)" with out=8192.
+         Reserve a real text allowance and grow max_tokens to cover both. */
+      const reserve = Math.max(4096, Math.round(body.max_tokens * 0.4));
+      const budget = Math.min(THINK_BUDGET[think], Math.max(1024, body.max_tokens - reserve));
       body.thinking = { type: 'enabled', budget_tokens: budget };
+      if (body.max_tokens < budget + reserve) body.max_tokens = budget + reserve;
       // temperature must stay 1 when extended thinking is on
     } else {
       body.temperature = Number(cfg.temperature);
     }
     return body;
+
   }
   // OpenAI compatible
   const list = [];
@@ -902,9 +922,34 @@ async function recaption(c, { force = false } = {}) {
   }
 }
 
+/* ---------------------------------------------------------------
+   Why did a reply arrive with no text?
+   Usually the token budget: with thinking enabled the model can spend the
+   whole allowance reasoning and stop before writing anything (stop_reason
+   "max_tokens" while out == the limit). Saying "(empty response)" teaches
+   the user nothing, so name the cause and the setting that fixes it.
+   --------------------------------------------------------------- */
+function emptyNote(stopReason, out, hadThinking) {
+  if (stopReason === 'max_tokens' || stopReason === 'length') {
+    return '_The model ran out of output tokens before writing an answer'
+      + (hadThinking ? ' — its entire budget went into thinking.' : '.')
+      + '_\n\nRaise **Max output tokens** in Settings (try 32000), or set '
+      + '**Adaptive Thinking** to `Medium`/`None` so more of the budget is left for the reply.'
+      + (out ? '\n\n<small>Used ' + out + ' output tokens.</small>' : '');
+  }
+  if (stopReason === 'refusal') return '_The model declined to answer._';
+  if (hadThinking) {
+    return '_The model finished thinking but produced no visible text._\n\n'
+      + 'Press **Retry**, or lower **Adaptive Thinking** so it spends its budget on the answer.';
+  }
+  return '_(empty response)_\n\nPress **Retry**. If it keeps happening, raise '
+    + '**Max output tokens** or lower **Adaptive Thinking** in Settings.';
+}
+
 /* =========================================================
    SSE stream parser (shared by both providers)
    ========================================================= */
+
 
 async function* sseLines(res) {
   const reader = res.body.getReader();
@@ -965,6 +1010,8 @@ async function send(text, isRetry = false) {
   $('stopBtn').hidden = false; $('sendBtn').disabled = true;
   const t0 = performance.now();
   let usage = null;
+  let stopReason = null;      // why the model stopped: max_tokens, end_turn, …
+
 
   const paint = () => {
     if (msg.thinking && !node.querySelector('details.think')) {
@@ -1005,15 +1052,19 @@ async function send(text, isRetry = false) {
           else if (b.type === 'text') msg.content += b.text || '';
         });
         if (j.usage) usage = { in: j.usage.input_tokens, out: j.usage.output_tokens };
+        stopReason = j.stop_reason || null;
       } else {
         const ch = j.choices?.[0]?.message || {};
+        stopReason = j.choices?.[0]?.finish_reason || null;
+
         msg.thinking += ch.reasoning_content || ch.reasoning || '';
         msg.content += (typeof ch.content === 'string' ? ch.content
           : Array.isArray(ch.content) ? ch.content.map((p) => p.text || '').join('') : '') || '';
         if (j.usage) usage = { in: j.usage.prompt_tokens, out: j.usage.completion_tokens };
       }
-      if (!msg.content && !msg.thinking) msg.content = '_(empty response)_';
+      if (!msg.content) msg.content = emptyNote(stopReason, usage?.out, !!msg.thinking);
       paint();
+
     } else {
       /* ---- streaming ---- */
       let ev = '';
@@ -1036,7 +1087,9 @@ async function send(text, isRetry = false) {
             usage = { in: j.message.usage.input_tokens, out: j.message.usage.output_tokens };
           } else if (type === 'message_delta') {
             if (j.usage) usage = Object.assign(usage || {}, { out: j.usage.output_tokens ?? usage?.out });
+            if (j.delta?.stop_reason) stopReason = j.delta.stop_reason;
           } else if (type === 'error') {
+
             throw new Error(j.error?.message || 'stream error');
           }
         } else {
@@ -1049,8 +1102,9 @@ async function send(text, isRetry = false) {
         }
         paint();
       }
-      if (!msg.content && !msg.thinking) msg.content = '_(empty response)_';
+      if (!msg.content) msg.content = emptyNote(stopReason, usage?.out, !!msg.thinking);
     }
+
 
     msg.usage = Object.assign({ ms: Math.round(performance.now() - t0) },
       usage || { out: approxTokens(msg.content + msg.thinking) });
@@ -1512,7 +1566,8 @@ function bind() {
   $('fetchModelsBtn').onclick = fetchModels;
 
   $('thinking').onchange = (e) => { cfg.thinking = e.target.value; saveCfg(); updateMeta(); };
-  $('maxTokens').oninput = (e) => { cfg.maxTokens = +e.target.value || 8192; saveCfg(); };
+  $('maxTokens').oninput = (e) => { cfg.maxTokens = +e.target.value || DEFAULTS.maxTokens; saveCfg(); };
+
   $('temperature').oninput = (e) => { cfg.temperature = +e.target.value; saveCfg(); };
   $('systemPrompt').oninput = (e) => { cfg.systemPrompt = e.target.value; saveCfg(); };
   $('client').onchange = (e) => {
