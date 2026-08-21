@@ -209,7 +209,8 @@ project, so start a new chat for a new app.
 
 
 - Streaming (SSE) for both API formats, with **Stop** mid-generation
-- **Image input** — click 🖼, paste, or drag images into the composer; they're
+- **Image input** — click **＋** (left of the input box), paste, or drag images in; they're
+
   downscaled to ≤1400px before sending, so you don't burn tokens on a 12 MP photo.
   Works with both API shapes (Anthropic blocks / OpenAI `image_url`)
 - **Build mode** with live preview and zip export (above)
