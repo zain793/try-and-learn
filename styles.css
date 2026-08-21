@@ -86,18 +86,30 @@ body{
 body.rail .sidebar{width:60px}
 body.rail .app{grid-template-columns:60px 1fr}
 body.rail .side-head{padding:10px 8px; gap:8px}
-body.rail .brand{justify-content:center}
+/* Logo + collapse button side by side don't fit in 60px — they overflowed, which
+   pushed the logo off-centre and sliced the collapse icon in half. Stack them so
+   everything sits on one vertical axis with the nav icons below. */
+body.rail .brand{flex-direction:column; align-items:center; gap:6px}
+
 body.rail .brand-txt,
+
 body.rail .nav-item .nl,
 body.rail .nav-item .nc,
 body.rail .mode-switch,
 body.rail .chat-list,
 body.rail .search-wrap,
 body.rail #settingsBtn2 .st{display:none}
-body.rail .brand-mark{width:30px; height:30px; flex-basis:30px}
-body.rail .nav-item{justify-content:center; padding:9px 0}
-body.rail .side-foot{padding:8px}
-body.rail #settingsBtn2{padding:9px 0}
+body.rail .brand-mark{width:34px; height:34px; flex-basis:34px}
+/* Every rail control is the same 38px square, centred with margin auto, so the
+   logo and all four icons share one vertical axis instead of drifting left. */
+body.rail .nav-item,
+body.rail #settingsBtn2{
+  width:38px; height:38px; padding:0; margin:0 auto;
+  justify-content:center; gap:0; border-radius:10px;
+}
+body.rail .side-nav{gap:4px; justify-items:center}
+body.rail .side-foot{padding:8px; justify-content:center}
+
 /* icon-only buttons get their label back as a hover tooltip */
 body.rail .nav-item[data-tip]:hover::after{
   content:attr(data-tip); position:absolute; left:calc(100% + 8px); top:50%; transform:translateY(-50%);
@@ -120,14 +132,22 @@ body.rail .nav-item[data-tip]:hover::after{
 
 .main{display:flex; flex-direction:column; min-width:0; min-height:0}
 .topbar{
-  display:flex; align-items:center; gap:8px; padding:10px 14px;
+  display:flex; align-items:center; gap:8px; padding:10px 14px; position:relative;
   border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--bg2) 75%,transparent);
   backdrop-filter:blur(8px);
 }
-.topbar-title{min-width:0; display:grid; line-height:1.25}
+/* Centred on the bar itself, not between the buttons — taken out of the flex
+   flow so the title stays dead centre no matter how wide the actions get.
+   pointer-events:none keeps it from swallowing clicks meant for them. */
+.topbar-title{
+  position:absolute; left:50%; transform:translateX(-50%);
+  max-width:min(56%,460px); min-width:0; display:grid; line-height:1.25;
+  text-align:center; pointer-events:none;
+}
 .topbar-title b{
   font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
+
 .topbar-title small{font-size:11px; color:var(--txt3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .spacer{flex:1}
 /* "server is down" banner */
@@ -550,6 +570,9 @@ body.build-mode .attachments{max-width:none}
   .sidebar.open{transform:none; box-shadow:var(--shadow)}
   .only-mobile{display:inline-flex}
   .hide-sm{display:none}
+  /* narrower cap so the centred title can't run under ☰ or the right buttons */
+  .topbar-title{max-width:40%}
+
   .messages{padding:16px 12px 4px}
   .msg{gap:9px}
   .avatar{width:28px;height:28px;flex:0 0 28px;font-size:12px}
