@@ -792,7 +792,14 @@ function updateMeta() {
     `<span>${cfg.provider === 'anthropic' ? 'Anthropic' : 'OpenAI-compatible'} · ${baseUrl()}</span>` +
     `<span>thinking: <b>${cfg.thinking}</b></span>` +
     `<span>${n} message${n === 1 ? '' : 's'}</span>` +
-    (cfg.useProxy ? `<span>via ${isLocal() ? 'local' : 'site'} proxy</span>` : '');
+    (cfg.useProxy ? `<span>via ${isLocal() ? 'local' : 'site'} proxy</span>` : '') +
+    /* Credit link, pushed to the right end of this row by margin-left:auto.
+       rel=noopener is not optional — without it the opened tab can reach back
+       through window.opener. This row is rebuilt on every render, so the link
+       lives here rather than in index.html where innerHTML would wipe it. */
+    `<a class="credit" href="https://x.com/mzain2292" target="_blank" rel="noopener noreferrer"` +
+    ` title="Follow @mzain2292 on X">Built by <b>mzain2292</b> <span class="ar" aria-hidden="true">↗</span></a>`;
+
 
   renderTopBar();
   BUILD.render();          // the workspace follows the active chat's project
